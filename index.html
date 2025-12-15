@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>初出荷顧客チェック</title>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <style>
+    table { border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 6px 10px; }
+    .highlight { background-color: #fff3a0; }
+  </style>
+</head>
+<body>
+  <h2>初出荷顧客チェック</h2>
+
+  <p>① 出荷実績CSV：</p>
+  <input type="file" id="historyCsv">
+
+  <p>② 売上CSV：</p>
+  <input type="file" id="salesCsv">
+
+  <br><br>
+  <button onclick="process()">チェック実行</button>
+
+  <div id="result"></div>
+
+<script>
+function process() {
+  const historyFile = document.getElementById("historyCsv").files[0];
+  const salesFile = document.getElementById("salesCsv").files[0];
+
+  if (!historyFile || !salesFile) {
+    alert("CSVを2つ選択してください");
+    return;
+  }
+
+  Papa.parse(historyFile, {
+    header: true,
+    complete: function(historyResult) {
+      const shippedSet = new Set(
+        historyResult.data.map(r => r["顧客ID"]?.trim())
+      );
+
+      Papa.parse(salesFile, {
+        header: true,
+        complete: function(salesResult) {
+          renderTable(salesResult.data, shippedSet);
+        }
+      });
+    }
+  });
+}
+
+function renderTable(data, shippedSet) {
+  let html = "<table><tr>";
+
+  Object.keys(data[0]).forEach(key => {
+    html += `<th>${key}</th>`;
+  });
+  html += "<th>初出荷</th></tr>";
+
+  data.forEach(row => {
+    const customerId = row["顧客ID"]?.trim();
+    const isFirst = !shippedSet.has(customerId);
+
+    html += `<tr class="${isFirst ? 'highlight' : ''}">`;
+    Object.values(row).forEach(val => {
+      html += `<td>${val ?? ""}</td>`;
+    });
+    html += `<td>${isFirst ? "YES" : ""}</td></tr>`;
+  });
+
+  html += "</table>";
+  document.getElementById("result").innerHTML = html;
+}
+</script>
+
+</body>
+</html>
