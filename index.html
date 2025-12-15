@@ -1,4 +1,102 @@
-function renderTable(currentData, avgMap) {
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>出荷異常チェック（最新月 vs 過去6か月）</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 30px;
+    }
+
+    table {
+      border-collapse: collapse;
+      margin-top: 20px;
+      min-width: 900px;
+    }
+
+    th, td {
+      border: 1px solid #ccc;
+      padding: 6px 10px;
+      text-align: right;
+    }
+
+    th {
+      background-color: #f0f0f0;
+      text-align: center;
+    }
+
+    td:nth-child(2),
+    td:nth-child(3) {
+      text-align: left;
+    }
+
+    .highlight {
+      background-color: #fff3a0;
+    }
+  </style>
+</head>
+<body>
+
+<h2>📦 出荷異常チェック（最新月 vs 過去6か月平均）</h2>
+
+<p>
+  <label>出荷実績CSV（月別横持ち）：</label><br>
+  <input type="file" id="csvFile">
+</p>
+
+<p>
+  <label>
+    警告しきい値：
+    <input type="number" id="threshold" value="30" style="width:60px;"> %
+  </label>
+</p>
+
+<button onclick="process()">チェック実行</button>
+
+<div id="result"></div>
+
+<p style="color:#555; font-size:14px;">
+  ※ 最新月と直前6か月平均を比較します<br>
+  ※ CSVは UTF-8 で保存してください
+</p>
+
+<script>
+/* ---------- 共通ユーティリティ ---------- */
+
+function toNumber(v) {
+  return Number(
+    String(v)
+      .replace(/,/g, "")
+      .replace(/　/g, "")
+      .trim()
+  );
+}
+
+function normalizeKey(s) {
+  return String(s)
+    .replace(/　/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+/* 月列を年月順で取得 */
+function getSortedMonthColumns(row) {
+  return Object.keys(row)
+    .filter(k => /\d{2}年\d{2}月度/.test(k))
+    .sort((a, b) => {
+      const [ay, am] = a.match(/\d+/g).map(Number);
+      const [by, bm] = b.match(/\d+/g).map(Number);
+      return ay !== by ? ay - by : am - bm;
+    });
+}
+
+/* ---------- メイン表示処理 ---------- */
+
+function renderTableFromSingleCSV(data) {
   const threshold = Number(document.getElementById("threshold").value) / 100;
 
   let html = `
@@ -7,7 +105,7 @@ function renderTable(currentData, avgMap) {
         <th>警告種別</th>
         <th>商品名</th>
         <th>得意先名</th>
-        <th>今月出荷</th>
+        <th>最新月出荷</th>
         <th>過去6か月平均</th>
         <th>超過率</th>
       </tr>
@@ -15,25 +113,41 @@ function renderTable(currentData, avgMap) {
 
   let hasWarning = false;
 
-  currentData.forEach(r => {
-    const customer = r["得意先名"]?.trim();
-    const product = r["商品名"]?.trim();
-    const qty = Number(r["出荷数量"]);
+  data.forEach(r => {
+    const product  = normalizeKey(r["商品名"]);
+    const customer = normalizeKey(r["得意先名"]);
 
-    if (!customer || !product || isNaN(qty)) return;
+    if (!product || !customer) return;
 
-    const key = `${customer}__${product}`;
-    const avg = avgMap[key];
+    const months = getSortedMonthColumns(r);
+    if (months.length < 2) return;
+
+    const latestCol = months[months.length - 1];
+    const pastCols  = months.slice(-7, -1); // 直前6か月
+
+    const latestQty = toNumber(r[latestCol]);
+    if (isNaN(latestQty)) return;
+
+    let total = 0;
+    let count = 0;
+
+    pastCols.forEach(c => {
+      const v = toNumber(r[c]);
+      if (!isNaN(v)) {
+        total += v;
+        count++;
+      }
+    });
 
     /* 初出荷 */
-    if (!avg) {
+    if (count === 0 && latestQty > 0) {
       hasWarning = true;
       html += `
         <tr class="highlight">
           <td>⚠ 初出荷</td>
           <td>${product}</td>
           <td>${customer}</td>
-          <td>${qty}</td>
+          <td>${latestQty}</td>
           <td>―</td>
           <td>―</td>
         </tr>
@@ -41,9 +155,12 @@ function renderTable(currentData, avgMap) {
       return;
     }
 
-    /* 急増（30％超） */
-    const rate = (qty - avg) / avg;
+    if (count === 0) return;
 
+    const avg = total / count;
+    const rate = (latestQty - avg) / avg;
+
+    /* 急増 */
     if (rate > threshold) {
       hasWarning = true;
       html += `
@@ -51,7 +168,7 @@ function renderTable(currentData, avgMap) {
           <td>⚠ 急増</td>
           <td>${product}</td>
           <td>${customer}</td>
-          <td>${qty}</td>
+          <td>${latestQty}</td>
           <td>${avg.toFixed(1)}</td>
           <td>${Math.round(rate * 100)}%</td>
         </tr>
@@ -64,3 +181,24 @@ function renderTable(currentData, avgMap) {
   document.getElementById("result").innerHTML =
     hasWarning ? html : "<p>⚠ 警告対象はありません</p>";
 }
+
+/* ---------- CSV読込 ---------- */
+
+function process() {
+  const file = document.getElementById("csvFile").files[0];
+  if (!file) {
+    alert("CSVファイルを選択してください");
+    return;
+  }
+
+  Papa.parse(file, {
+    header: true,
+    complete: function(result) {
+      renderTableFromSingleCSV(result.data);
+    }
+  });
+}
+</script>
+
+</body>
+</html>
