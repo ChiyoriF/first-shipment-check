@@ -1,134 +1,10 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <title>出荷異常チェック（過去6か月比）</title>
-
-  <!-- CSVパーサ -->
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 30px;
-    }
-
-    h2 {
-      margin-bottom: 10px;
-    }
-
-    label {
-      font-weight: bold;
-    }
-
-    table {
-      border-collapse: collapse;
-      margin-top: 20px;
-      min-width: 800px;
-    }
-
-    th, td {
-      border: 1px solid #ccc;
-      padding: 6px 10px;
-      text-align: right;
-    }
-
-    th {
-      background-color: #f0f0f0;
-      text-align: center;
-    }
-
-    td:first-child,
-    td:nth-child(2) {
-      text-align: left;
-    }
-
-    .highlight {
-      background-color: #fff3a0;
-    }
-
-    .note {
-      margin-top: 15px;
-      color: #555;
-      font-size: 14px;
-    }
-  </style>
-</head>
-<body>
-
-  <h2>📦 出荷異常チェック（過去6か月平均比）</h2>
-
-  <p>
-    <label>① 過去6か月 出荷実績CSV：</label><br>
-    <input type="file" id="historyCsv">
-  </p>
-
-  <p>
-    <label>② 今月 出荷実績CSV：</label><br>
-    <input type="file" id="currentCsv">
-  </p>
-
-  <p>
-    <label>
-      警告しきい値：
-      <input type="number" id="threshold" value="30" style="width:60px;"> %
-    </label>
-  </p>
-
-  <button onclick="process()">チェック実行</button>
-
-  <div id="result"></div>
-
-  <p class="note">
-    ※ 過去6か月平均より指定％以上多い出荷のみ表示されます<br>
-    ※ CSVは UTF-8 で保存してください
-  </p>
-
-<script>
-/* 月別列（◯年◯月度）を自動抽出 */
-function getMonthColumns(row) {
-  return Object.keys(row).filter(k =>
-    /\d{2}年\d{2}月度/.test(k)
-  );
-}
-
-/* 過去6か月の平均マップ作成 */
-function buildAverageMap(historyData) {
-  const map = {};
-
-  historyData.forEach(r => {
-    const customer = r["得意先名"]?.trim();
-    const product = r["商品名"]?.trim();
-    if (!customer || !product) return;
-
-    const months = getMonthColumns(r);
-    let total = 0;
-    let count = 0;
-
-    months.forEach(m => {
-      const v = Number(r[m]);
-      if (!isNaN(v)) {
-        total += v;
-        count++;
-      }
-    });
-
-    if (count === 0) return;
-
-    const key = `${customer}__${product}`;
-    map[key] = total / count;
-  });
-
-  return map;
-}
-
-/* 結果表示（30％超のみ） */
 function renderTable(currentData, avgMap) {
   const threshold = Number(document.getElementById("threshold").value) / 100;
 
   let html = `
     <table>
       <tr>
+        <th>警告種別</th>
         <th>商品名</th>
         <th>得意先名</th>
         <th>今月出荷</th>
@@ -149,14 +25,30 @@ function renderTable(currentData, avgMap) {
     const key = `${customer}__${product}`;
     const avg = avgMap[key];
 
-    if (!avg || avg === 0) return;
+    /* 初出荷 */
+    if (!avg) {
+      hasWarning = true;
+      html += `
+        <tr class="highlight">
+          <td>⚠ 初出荷</td>
+          <td>${product}</td>
+          <td>${customer}</td>
+          <td>${qty}</td>
+          <td>―</td>
+          <td>―</td>
+        </tr>
+      `;
+      return;
+    }
 
+    /* 急増（30％超） */
     const rate = (qty - avg) / avg;
 
     if (rate > threshold) {
       hasWarning = true;
       html += `
         <tr class="highlight">
+          <td>⚠ 急増</td>
           <td>${product}</td>
           <td>${customer}</td>
           <td>${qty}</td>
@@ -172,32 +64,3 @@ function renderTable(currentData, avgMap) {
   document.getElementById("result").innerHTML =
     hasWarning ? html : "<p>⚠ 警告対象はありません</p>";
 }
-
-/* メイン処理 */
-function process() {
-  const historyFile = document.getElementById("historyCsv").files[0];
-  const currentFile = document.getElementById("currentCsv").files[0];
-
-  if (!historyFile || !currentFile) {
-    alert("CSVを2つ選択してください");
-    return;
-  }
-
-  Papa.parse(historyFile, {
-    header: true,
-    complete: function(historyResult) {
-      const avgMap = buildAverageMap(historyResult.data);
-
-      Papa.parse(currentFile, {
-        header: true,
-        complete: function(currentResult) {
-          renderTable(currentResult.data, avgMap);
-        }
-      });
-    }
-  });
-}
-</script>
-
-</body>
-</html>
