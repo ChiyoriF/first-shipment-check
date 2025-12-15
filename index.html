@@ -4,7 +4,6 @@ function renderTable(currentData, avgMap) {
   let html = `
     <table>
       <tr>
-        <th>警告種別</th>
         <th>商品名</th>
         <th>得意先名</th>
         <th>今月出荷</th>
@@ -20,35 +19,17 @@ function renderTable(currentData, avgMap) {
     const product = r["商品名"]?.trim();
     const qty = Number(r["出荷数量"]);
 
-    if (!customer || !product || isNaN(qty)) return;
-
     const key = `${customer}__${product}`;
     const avg = avgMap[key];
 
-    /* ① 初出荷 */
-    if (!avg) {
-      hasWarning = true;
-      html += `
-        <tr class="highlight">
-          <td>⚠ 初出荷</td>
-          <td>${product}</td>
-          <td>${customer}</td>
-          <td>${qty}</td>
-          <td>―</td>
-          <td>―</td>
-        </tr>
-      `;
-      return;
-    }
+    if (!avg || avg === 0) return;
 
-    /* ② 急増（30％超） */
     const rate = (qty - avg) / avg;
 
     if (rate > threshold) {
       hasWarning = true;
       html += `
         <tr class="highlight">
-          <td>⚠ 急増</td>
           <td>${product}</td>
           <td>${customer}</td>
           <td>${qty}</td>
