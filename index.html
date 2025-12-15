@@ -55,6 +55,13 @@
   </label>
 </p>
 
+<p>
+  <label>
+    最低出荷数量（cs）：
+    <input type="number" id="minQty" value="10" style="width:60px;">
+  </label>
+</p>
+
 <button onclick="process()">チェック実行</button>
 
 <div id="result"></div>
@@ -99,6 +106,8 @@ function getSortedMonthColumns(row) {
 function renderTableFromSingleCSV(data) {
   const threshold = Number(document.getElementById("threshold").value) / 100;
 
+const minQty = Number(document.getElementById("minQty").value);
+
   let html = `
     <table>
       <tr>
@@ -126,7 +135,8 @@ function renderTableFromSingleCSV(data) {
     const pastCols  = months.slice(-7, -1); // 直前6か月
 
     const latestQty = toNumber(r[latestCol]);
-    if (isNaN(latestQty)) return;
+if (isNaN(latestQty) || latestQty < minQty) return;
+
 
     let total = 0;
     let count = 0;
