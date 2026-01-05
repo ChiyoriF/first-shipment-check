@@ -15,7 +15,7 @@
     table {
       border-collapse: collapse;
       margin-top: 20px;
-      min-width: 900px;
+      min-width: 1000px;
     }
 
     th, td {
@@ -68,6 +68,7 @@
 
 <p style="color:#555; font-size:14px;">
   ※ 最新月と直前6か月平均を比較します<br>
+  ※ 商品平均は「全得意先合算・月平均」です<br>
   ※ CSVは UTF-8 で保存してください
 </p>
 
@@ -101,12 +102,47 @@ function getSortedMonthColumns(row) {
     });
 }
 
+/* ---------- 商品平均（全得意先・月平均）を計算 ---------- */
+
+function calcProductMonthlyAverage(data) {
+  const productMonthMap = {};
+
+  data.forEach(r => {
+    const product = normalizeKey(r["商品名"]);
+    if (!product) return;
+
+    const months = getSortedMonthColumns(r);
+    if (!productMonthMap[product]) {
+      productMonthMap[product] = {};
+    }
+
+    months.forEach(m => {
+      const v = toNumber(r[m]);
+      if (!isNaN(v)) {
+        productMonthMap[product][m] =
+          (productMonthMap[product][m] || 0) + v;
+      }
+    });
+  });
+
+  const avgMap = {};
+  Object.keys(productMonthMap).forEach(product => {
+    const monthTotals = Object.values(productMonthMap[product]);
+    const sum = monthTotals.reduce((a, b) => a + b, 0);
+    const monthCount = monthTotals.length;
+    avgMap[product] = monthCount > 0 ? sum / monthCount : null;
+  });
+
+  return avgMap;
+}
+
 /* ---------- メイン表示処理 ---------- */
 
 function renderTableFromSingleCSV(data) {
   const threshold = Number(document.getElementById("threshold").value) / 100;
+  const minQty = Number(document.getElementById("minQty").value);
 
-const minQty = Number(document.getElementById("minQty").value);
+  const productAvgMap = calcProductMonthlyAverage(data);
 
   let html = `
     <table>
@@ -117,6 +153,8 @@ const minQty = Number(document.getElementById("minQty").value);
         <th>最新月出荷</th>
         <th>過去6か月平均</th>
         <th>超過率</th>
+        <th>商品平均（全得意先）</th>
+        <th>商品平均比（％）</th>
       </tr>
   `;
 
@@ -125,22 +163,19 @@ const minQty = Number(document.getElementById("minQty").value);
   data.forEach(r => {
     const product  = normalizeKey(r["商品名"]);
     const customer = normalizeKey(r["得意先名"]);
-
     if (!product || !customer) return;
 
     const months = getSortedMonthColumns(r);
     if (months.length < 2) return;
 
     const latestCol = months[months.length - 1];
-    const pastCols  = months.slice(-7, -1); // 直前6か月
+    const pastCols  = months.slice(-7, -1);
 
     const latestQty = toNumber(r[latestCol]);
-if (isNaN(latestQty) || latestQty < minQty) return;
-
+    if (isNaN(latestQty) || latestQty < minQty) return;
 
     let total = 0;
     let count = 0;
-
     pastCols.forEach(c => {
       const v = toNumber(r[c]);
       if (!isNaN(v)) {
@@ -148,6 +183,12 @@ if (isNaN(latestQty) || latestQty < minQty) return;
         count++;
       }
     });
+
+    const productAvg = productAvgMap[product];
+    const shareRate =
+      productAvg && productAvg > 0
+        ? (latestQty / productAvg) * 100
+        : null;
 
     /* 初出荷 */
     if (count === 0 && latestQty > 0) {
@@ -160,6 +201,8 @@ if (isNaN(latestQty) || latestQty < minQty) return;
           <td>${latestQty}</td>
           <td>―</td>
           <td>―</td>
+          <td>${productAvg ? productAvg.toFixed(1) : "―"}</td>
+          <td>${shareRate ? shareRate.toFixed(0) + "%" : "―"}</td>
         </tr>
       `;
       return;
@@ -181,6 +224,8 @@ if (isNaN(latestQty) || latestQty < minQty) return;
           <td>${latestQty}</td>
           <td>${avg.toFixed(1)}</td>
           <td>${Math.round(rate * 100)}%</td>
+          <td>${productAvg.toFixed(1)}</td>
+          <td>${shareRate.toFixed(0)}%</td>
         </tr>
       `;
     }
